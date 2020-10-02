@@ -1,4 +1,4 @@
-/* code by https://www.mail-archive.com/devel@xfree86.org/msg05806.html */
+/* original source by https://www.mail-archive.com/devel@xfree86.org/msg05806.html */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,80 +13,108 @@
 #include <X11/X.h>
 #include <X11/Xatom.h>
 
-/* prototypes */
-static void __e_hack_set_properties(Display *display, Window window);
+extern char **environ;
 
+static const char env_prefix[] = "WINPRELOAD_";
+static const int env_prefixlen = sizeof(env_prefix) - 1;
 /* dlopened xlib so we can find the symbols in the real xlib to call them */
 static void *lib_xlib = NULL;
 
-/* the function that actually sets the properties on toplevel window */
-static void
-__e_hack_set_properties(Display *display, Window window)
+#define SETFMTPROP(name, format, val)                                       \
+		{                                                                \
+			char buf[1024];                                              \
+			snprintf(buf, sizeof(buf), format, val);                     \
+			atom = XInternAtom(display, name, False);                    \
+			XChangeProperty(display, window, atom, XA_STRING, 8,         \
+					PropModeReplace, (unsigned char*) buf, strlen(buf)); \
+		}
+#define SETPROP(name, type, size, val)                                   \
+		{                                                                \
+			atom = XInternAtom(display, name, False);                    \
+			XChangeProperty(display, window, atom, type, size,           \
+					PropModeReplace, val, 1); \
+		}
+
+/* prototypes */
+static void set_properties(Display *display, Window window);
+
+void
+set_properties(Display *display, Window window)
 {
-	static Atom a_launch_id = 0, a_launch_path = 0, a_user_id = 0,
-		a_process_id = 0, a_p_process_id = 0, a_machine_name = 0,
-		a_user_name = 0;
+	int wx, wy, dx, dy, atom = 0;
+	unsigned int ww, wh, dw, dh;
 	char *env = NULL;
 
-	if (!a_launch_id)
-		a_launch_id = XInternAtom(display, "_E_HACK_LAUNCH_ID", False);
-	if (!a_launch_path)
-		a_launch_path = XInternAtom(display, "_E_HACK_LAUNCH_PATH", False);
-	if (!a_user_id)
-		a_user_id = XInternAtom(display, "_E_HACK_USER_ID", False);
-	if (!a_process_id)
-		a_process_id = XInternAtom(display, "_E_HACK_PROCESS_ID", False);
-	if (!a_p_process_id)
-		a_p_process_id = XInternAtom(display, "_E_HACK_PARENT_PROCESS_ID", False);
-	if (!a_machine_name)
-		a_machine_name = XInternAtom(display, "_E_HACK_MACHINE_NAME", False);
-	if (!a_user_name)
-		a_user_name = XInternAtom(display, "_E_HACK_USER_NAME", False);
+	{
+		Window root;
+		unsigned int width, height, border, depth;
+		Screen *screen = XDefaultScreenOfDisplay(display);
+		dw = screen->width;
+		dh = screen->height;
 
-	if ((env = getenv("E_HACK_LAUNCH_ID")))
-		XChangeProperty(display, window, a_launch_id, XA_STRING, 8,
-				PropModeReplace, (unsigned char*) env, strlen(env));
+		XGetGeometry(display, screen->root,
+				&root, &dx, &dy, &width, &height, &border, &depth);
 
-	if ((env = getenv("E_HACK_LAUNCH_PATH")))
-		XChangeProperty(display, window, a_launch_path, XA_STRING, 8,
-				PropModeReplace, (unsigned char*) env, strlen(env));
+		XGetGeometry(display, window,
+				&root, &wx, &wy, &ww, &wh, &border, &depth);
+	}
+
+	printf("%i %i %i %i\n", dx, dy, dw, dh);
+
+	char **s, *iter, *key, *value;
+	for (s = environ; *s; s++) {
+		/* parse key=value pair */
+		iter = strchr(*s, '=');
+		if (!iter)
+			continue;
+		*iter = '\0';
+		key = *s;
+		value = iter + 1;
+
+		/* check if meant for us */
+		if (strncmp(key, env_prefix, env_prefixlen))
+			continue;
+
+		key = &key[env_prefixlen];
+		if (!strcmp(key, "POS_X")) {
+			wx = dx + atoi(value);
+		} else if (!strcmp(key, "POS_Y")) {
+			wy = dy + atoi(value);
+		} else if (!strcmp(key, "POS_CENTER")) {
+			wx = dx + dw / 2.f;
+			wy = dy + dh / 2.f;
+		} else if (!strcmp(key, "DIALOG")) {
+			Atom a;
+
+			a = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+			SETPROP("_NET_WM_WINDOW_TYPE", XA_ATOM, 32, (void*) &a);
+		} else {
+			SETFMTPROP(key, "%s", value);
+		}
+	}
 
 	{
 		uid_t uid;
 		pid_t pid, ppid;
-		struct utsname ubuf;
-		char buf[4096];
 		
 		uid = getuid();
 		pid = getpid();
 		ppid = getppid();
 
-		snprintf(buf, sizeof(buf), "%i", uid);
-		XChangeProperty(display, window, a_user_id, XA_STRING, 8,
-				PropModeReplace, (unsigned char*) buf, strlen(buf));
-		snprintf(buf, sizeof(buf), "%i", pid);
-		XChangeProperty(display, window, a_process_id, XA_STRING, 8,
-				PropModeReplace, (unsigned char*) buf, strlen(buf));
-		snprintf(buf, sizeof(buf), "%i", ppid);
-		XChangeProperty(display, window, a_p_process_id, XA_STRING, 8,
-				PropModeReplace, (unsigned char*) buf, strlen(buf));
-
-		if (!uname(&ubuf)) {
-			snprintf(buf, sizeof(buf), "%s", ubuf.nodename);
-			XChangeProperty(display, window, a_machine_name, XA_STRING, 8,
-					PropModeReplace, (unsigned char*) buf, strlen(buf));
-		} else {
-			XChangeProperty(display, window, a_machine_name, XA_STRING, 8,
-					PropModeReplace, (const unsigned char*) " ", 1);
-		}
+		SETPROP("_NET_WM_UID", XA_CARDINAL, 32, (void*) &uid);
+		SETPROP("_NET_WM_PID", XA_CARDINAL, 32, (void*) &pid);
+		SETPROP("_NET_WM_PPID", XA_CARDINAL, 32, (void*) &ppid);
 	}
 
-	if ((env = getenv("USER")))
-		XChangeProperty(display, window, a_user_name, XA_STRING, 8,
-				PropModeReplace, (unsigned char*) env, strlen(env));
+	{
+		XWindowChanges values = { .x = wx, .y = wy, .width = ww, .height = wh };
+		int value_mask = CWX | CWY | CWWidth | CWHeight;
+
+		XConfigureWindow(display, window, value_mask, &values);
+	}
 }
 
-/* XCreateWindow intercept hack */
+/* XCreateWindow intercept */
 Window
 XCreateWindow(
 	Display *display,
@@ -126,7 +154,7 @@ XCreateWindow(
 			/* create and set properties */
 			window = (*func) (display, parent, x, y, width, height,
 				border_width, depth, class, visual, valuemask, attributes);
-			__e_hack_set_properties(display, window);
+			set_properties(display, window);
 
 			return window;
 		}
@@ -137,7 +165,7 @@ XCreateWindow(
 			class, visual, valuemask, attributes);
 }
 
-/* XCreateSimpleWindow intercept hack */
+/* XCreateSimpleWindow intercept */
 Window
 XCreateSimpleWindow(
 	Display *display,
@@ -168,11 +196,10 @@ XCreateSimpleWindow(
 		if (parent == RootWindow(display, i)) {
 			Window window;
 
+			/* create and set properties */
 			window = (*func) (display, parent, x, y, width, height, 
 				border_width, border, background);
-
-			/* set properties */
-			__e_hack_set_properties(display, window);
+			set_properties(display, window);
 			return window;
 		}
 	}
@@ -182,7 +209,7 @@ XCreateSimpleWindow(
 			border_width, border, background);
 }
 
-/* XReparentWindow intercept hack */
+/* XReparentWindow intercept */
 int
 XReparentWindow(
 	Display *display,
@@ -202,18 +229,17 @@ XReparentWindow(
 	if (!func) func = dlsym (lib_xlib, "XReparentWindow");
 	
 	/* multihead screen handling loop */
-	for (i = 0; i < ScreenCount(display); i++)
-	  {
-	/* if the window is created as a toplevel window */
-	if (parent == RootWindow(display, i))
-	  {
-		  /* set properties */
-		  __e_hack_set_properties(display, window);
-		  /* reparent it */
-		  return (*func) (display, window, parent, x, y);
-	  }
-	  }
-	/* normal child window reparenting - reparent as usual */
+	for (i = 0; i < ScreenCount(display); i++) {
+		/* if the window is created as a toplevel window */
+		if (parent == RootWindow(display, i)) {
+
+			/* set properties and reparent */
+			set_properties(display, window);
+			return (*func) (display, window, parent, x, y);
+		}
+	}
+
+	/* normal child window - reparent as usual */
 	return (*func) (display, window, parent, x, y);
 }
 
