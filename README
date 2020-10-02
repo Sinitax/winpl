@@ -1,0 +1,13 @@
+winpreload
+==========
+
+
+Ideology
+--------
+
+Winpreload is a non-invasive way of modifying window properties for
+windows created by a program through the use of LD_PRELOAD. This
+enables the user to set properties such as _NET_WM_WINDOW_TYPE to
+start the window as floating and adjust its position. Parameters
+are passed to winpreload via environment variables, which are
+prefixed with 'WINPRELOAD+'.
