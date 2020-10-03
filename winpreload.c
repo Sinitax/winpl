@@ -12,6 +12,7 @@
 #include <X11/Xlib.h>
 #include <X11/X.h>
 #include <X11/Xatom.h>
+#include <X11/extensions/Xinerama.h>
 
 extern char **environ;
 
@@ -41,25 +42,45 @@ static void set_properties(Display *display, Window window);
 void
 set_properties(Display *display, Window window)
 {
-	int wx, wy, dx, dy, atom = 0;
-	unsigned int ww, wh, dw, dh;
+	int wx, wy, mx, my, atom = 0;
+	unsigned int ww, wh, mw, mh;
 	char *env = NULL;
 
 	{
 		Window root;
 		unsigned int width, height, border, depth;
-		Screen *screen = XDefaultScreenOfDisplay(display);
-		dw = screen->width;
-		dh = screen->height;
-
-		XGetGeometry(display, screen->root,
-				&root, &dx, &dy, &width, &height, &border, &depth);
 
 		XGetGeometry(display, window,
 				&root, &wx, &wy, &ww, &wh, &border, &depth);
-	}
 
-	printf("%i %i %i %i\n", dx, dy, dw, dh);
+		/* get monitor that intersects window rect */
+		if (XineramaIsActive(display)) {
+			int mcount, i;
+			XineramaScreenInfo *info, target;
+
+			info = XineramaQueryScreens(display, &mcount);
+
+			for (i = 0; i < mcount; i++) {
+				 if ((target.x_org != info[i].x_org
+						|| target.y_org != info[i].y_org)
+						&& wx >= info[i].x_org && wy >= info[i].y_org
+						&& wx < info[i].x_org + info[i].width
+						&& wy < info[i].y_org + info[i].height) {
+					target = info[i];
+				}
+			}
+
+			mx = target.x_org;
+			my = target.y_org;
+			mw = target.width;
+			mh = target.height;
+
+			XFree(info);
+		} else {
+			XGetGeometry(display, root, &root, &mx, &my,
+				&mw, &mh, &border, &depth);
+		}
+	}
 
 	char **s, *iter, *key, *value;
 	for (s = environ; *s; s++) {
@@ -77,12 +98,16 @@ set_properties(Display *display, Window window)
 
 		key = &key[env_prefixlen];
 		if (!strcmp(key, "POS_X")) {
-			wx = dx + atoi(value);
+			wx = mx + atoi(value);
 		} else if (!strcmp(key, "POS_Y")) {
-			wy = dy + atoi(value);
+			wy = my + atoi(value);
+        } else if (!strcmp(key, "RPOS_X")) {
+			wx = atoi(value);
+		} else if (!strcmp(key, "RPOS_Y")) {
+			wy = atoi(value);
 		} else if (!strcmp(key, "POS_CENTER")) {
-			wx = dx + dw / 2.f;
-			wy = dy + dh / 2.f;
+			wx = mx + (mw - ww) / 2.f;
+			wy = my + (mh - ww) / 2.f;
 		} else if (!strcmp(key, "DIALOG")) {
 			Atom a;
 
