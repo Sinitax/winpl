@@ -21,7 +21,30 @@ static const int env_prefixlen = sizeof(env_prefix) - 1;
 /* dlopened xlib so we can find the symbols in the real xlib to call them */
 static void *lib_xlib = NULL;
 
-#define SETFMTPROP(name, format, val)                                       \
+#define MAX(a,b) ((a > b) ? a : b)
+#define MIN(a,b) ((a < b) ? a : b)
+#define INTERSECT(x,y,w,h,r)     (MAX(0, MIN((x)+(w),(r).x_org+(r).width)  \
+									- MAX((x),(r).x_org))                  \
+								* MAX(0, MIN((y)+(h),(r).y_org+(r).height) \
+									- MAX((y),(r).y_org)))
+#define ERRQUIT(msg) { fprintf(stderr, msg); exit(1); }
+#define ENVPARSE(...)                                               \
+	{                                                               \
+		char **envvar, *enviter, *key, *value, varbuf[256];         \
+		for (envvar = environ; *envvar; envvar++) {                 \
+			strncpy(varbuf, *envvar, sizeof(varbuf) - 1);           \
+			varbuf[sizeof(varbuf)  - 1] = '\0';                     \
+			enviter = strchr(varbuf, '=');                          \
+			if (!enviter) continue;                                 \
+			*enviter = '\0';                                        \
+			key = varbuf;                                           \
+			value = enviter + 1;                                    \
+			if (strncmp(key, env_prefix, env_prefixlen)) continue;  \
+			key = &key[env_prefixlen];                              \
+			__VA_ARGS__                                             \
+		}                                                           \
+	}
+#define SETFMTPROP(name, format, val)                                    \
 		{                                                                \
 			char buf[1024];                                              \
 			snprintf(buf, sizeof(buf), format, val);                     \
@@ -39,6 +62,33 @@ static void *lib_xlib = NULL;
 /* prototypes */
 static void set_properties(Display *display, Window window);
 
+int
+monitor_by_pointer(XineramaScreenInfo *info, int mcount,
+		Display *display, Window window)
+{
+	Window dummy;
+	int x = 0, y = 0, di, i, screen;
+	unsigned int dui;
+
+	/* determine monitor by where the pointer is */
+	XQueryPointer(display, window, &dummy, &dummy,
+				&x, &y, &di, &di, &dui);
+
+	for (screen = i = 0; i < mcount; i++) {
+		if (x >= info[i].x_org && y >= info[i].y_org
+				&& x < info[i].x_org + info[i].width
+				&& y < info[i].y_org + info[i].height) {
+			screen = i;
+			break;
+		}
+	}
+
+	if (i == mcount)
+		return -1;
+	else
+		return screen;
+}
+
 void
 set_properties(Display *display, Window window)
 {
@@ -48,63 +98,103 @@ set_properties(Display *display, Window window)
 
 	{
 		Window root;
-		unsigned int width, height, border, depth;
+		unsigned int border, depth;
 
-		XGetGeometry(display, window,
-				&root, &wx, &wy, &ww, &wh, &border, &depth);
+		/* get window geometry */
+		if (!XGetGeometry(display, window, &root,
+					&wx, &wy, &ww, &wh, &border, &depth))
+			ERRQUIT("winpreload: unable to determine window geometry\n");
 
-		/* get monitor that intersects window rect */
-		if (XineramaIsActive(display)) {
-			int mcount, i;
-			XineramaScreenInfo *info, target;
+		/* use root geometry for monitor as default */
+		if (!XGetGeometry(display, root, &root,
+					&mx, &my, &mw, &mh, &border, &depth))
+			ERRQUIT("winpreload: unable to determine screen geometry\n");
+	}
 
-			info = XineramaQueryScreens(display, &mcount);
+	/* parse env for screen-related vars first */
+	if (XineramaIsActive(display)) {
+		XineramaScreenInfo *info;
+		int mcount, screen, set;
 
-			for (i = 0; i < mcount; i++) {
-				 if ((target.x_org != info[i].x_org
-						|| target.y_org != info[i].y_org)
-						&& wx >= info[i].x_org && wy >= info[i].y_org
-						&& wx < info[i].x_org + info[i].width
-						&& wy < info[i].y_org + info[i].height) {
-					target = info[i];
+		if (!(info = XineramaQueryScreens(display, &mcount)))
+			goto cleanup_xinerama;
+
+		/* NOTE:
+		 * for dwm (tested ver 4.9), windows are contrained to the dimensions of
+		 * their monitor (which is the selected monitor on creation). Because of
+		 * this, it is not possible to init the screen position outside the
+		 * selected monitor.. a patch of dwm or some kind of signal that the
+		 * selected monitor should be changed is necessary
+		 */
+		screen = 0;
+		set = 0;
+		ENVPARSE(
+			if (!strcmp("SCREEN_NUM", key) && (set || ++set)) {
+				screen = strtoul(value, NULL, 0);
+				if (screen >= mcount)
+					ERRQUIT("winpreload: invalid screen number specified\n");
+			} else if (!strcmp("SCREEN_PTR", key) && (set || ++set)) {
+				screen = monitor_by_pointer(info, mcount, display, window);
+				if (screen == -1)
+					goto cleanup_xinerama;
+			}
+		)
+
+		if (!set) {
+			Window w, root, *dws, dw, pw;
+			XWindowAttributes wa;
+			int di, a, area, i;
+			unsigned du;
+
+			root = XDefaultRootWindow(display);
+			screen = -1;
+
+			/* check if a focussed window exists.. */
+			XGetInputFocus(display, &w, &di);
+			/* modified snippet from dmenu-4.9 source */
+			if (w != root && w != PointerRoot && w != None) {
+				do {
+					if (XQueryTree(display, (pw = w), &dw, &w, &dws, &du) && dws)
+						XFree(dws);
+				} while (w != root && w != pw);
+				/* find xinerama screen with which the window intersects most */
+				if (XGetWindowAttributes(display, pw, &wa)) {
+					for (i = 0; i < mcount; i++) {
+						a = INTERSECT(wa.x, wa.y, wa.width, wa.height, info[i]);
+						if (a > area) {
+							area = a;
+							screen = i;
+						}
+					}
 				}
 			}
 
-			mx = target.x_org;
-			my = target.y_org;
-			mw = target.width;
-			mh = target.height;
-
-			XFree(info);
-		} else {
-			XGetGeometry(display, root, &root, &mx, &my,
-				&mw, &mh, &border, &depth);
+			/* ..else try by pointer */
+			if (screen == -1) {
+				screen = monitor_by_pointer(info, mcount, display, window);
+				if (screen == -1)
+					goto cleanup_xinerama;
+			}
 		}
+
+		mx = info[screen].x_org;
+		my = info[screen].y_org;
+		mw = info[screen].width;
+		mh = info[screen].height;
+
+cleanup_xinerama:
+		XFree(info);
 	}
 
-	char **s, *iter, *key, *value;
-	for (s = environ; *s; s++) {
-		/* parse key=value pair */
-		iter = strchr(*s, '=');
-		if (!iter)
-			continue;
-		*iter = '\0';
-		key = *s;
-		value = iter + 1;
-
-		/* check if meant for us */
-		if (strncmp(key, env_prefix, env_prefixlen))
-			continue;
-
-		key = &key[env_prefixlen];
+	ENVPARSE(
 		if (!strcmp(key, "POS_X")) {
-			wx = mx + atoi(value);
+			wx = strtoul(value, NULL, 0);
 		} else if (!strcmp(key, "POS_Y")) {
-			wy = my + atoi(value);
-        } else if (!strcmp(key, "RPOS_X")) {
-			wx = atoi(value);
-		} else if (!strcmp(key, "RPOS_Y")) {
-			wy = atoi(value);
+			wy = strtoul(value, NULL, 0);
+        } else if (!strcmp(key, "MPOS_X")) {
+			wx = mx + strtoul(value, NULL, 0);
+		} else if (!strcmp(key, "MPOS_Y")) {
+			wy = my + strtoul(value, NULL, 0);
 		} else if (!strcmp(key, "POS_CENTER")) {
 			wx = mx + (mw - ww) / 2.f;
 			wy = my + (mh - ww) / 2.f;
@@ -116,7 +206,7 @@ set_properties(Display *display, Window window)
 		} else {
 			SETFMTPROP(key, "%s", value);
 		}
-	}
+	)
 
 	{
 		uid_t uid;
@@ -126,17 +216,15 @@ set_properties(Display *display, Window window)
 		pid = getpid();
 		ppid = getppid();
 
+		/* set basic properties */
 		SETPROP("_NET_WM_UID", XA_CARDINAL, 32, (void*) &uid);
 		SETPROP("_NET_WM_PID", XA_CARDINAL, 32, (void*) &pid);
 		SETPROP("_NET_WM_PPID", XA_CARDINAL, 32, (void*) &ppid);
 	}
 
-	{
-		XWindowChanges values = { .x = wx, .y = wy, .width = ww, .height = wh };
-		int value_mask = CWX | CWY | CWWidth | CWHeight;
-
-		XConfigureWindow(display, window, value_mask, &values);
-	}
+	/* update window pos and geometry */
+	XMoveWindow(display, window, wx, wy);
+	XResizeWindow(display, window, ww, wh);
 }
 
 /* XCreateWindow intercept */
