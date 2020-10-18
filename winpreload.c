@@ -28,35 +28,38 @@ static void *lib_xlib = NULL;
 								* MAX(0, MIN((y)+(h),(r).y_org+(r).height) \
 									- MAX((y),(r).y_org)))
 #define ERRQUIT(msg) { fprintf(stderr, msg); exit(1); }
-#define ENVPARSE(...)                                               \
-	{                                                               \
-		char **envvar, *enviter, *key, *value, varbuf[256];         \
-		for (envvar = environ; *envvar; envvar++) {                 \
-			strncpy(varbuf, *envvar, sizeof(varbuf) - 1);           \
-			varbuf[sizeof(varbuf)  - 1] = '\0';                     \
-			enviter = strchr(varbuf, '=');                          \
-			if (!enviter) continue;                                 \
-			*enviter = '\0';                                        \
-			key = varbuf;                                           \
-			value = enviter + 1;                                    \
-			if (strncmp(key, env_prefix, env_prefixlen)) continue;  \
-			key = &key[env_prefixlen];                              \
-			__VA_ARGS__                                             \
-		}                                                           \
+#define ENVPARSE(...)                                                \
+	{                                                                \
+		char **__envvar, *__enviter, *key, *value, __varbuf[256];    \
+		for (__envvar = environ; *__envvar; __envvar++) {            \
+			strncpy(__varbuf, *__envvar, sizeof(__varbuf) - 1);      \
+			__varbuf[sizeof(__varbuf)  - 1] = '\0';                  \
+			__enviter = strchr(__varbuf, '=');                       \
+			if (!__enviter) continue;                                \
+			*__enviter = '\0';                                       \
+			key = __varbuf;                                          \
+			value = __enviter + 1;                                   \
+			if (strncmp(key, env_prefix, env_prefixlen))             \
+				continue;                                            \
+			key = &key[env_prefixlen];                               \
+			__VA_ARGS__                                              \
+		}                                                            \
 	}
-#define SETFMTPROP(name, format, val)                                    \
-		{                                                                \
-			char buf[1024];                                              \
-			snprintf(buf, sizeof(buf), format, val);                     \
-			atom = XInternAtom(display, name, False);                    \
-			XChangeProperty(display, window, atom, XA_STRING, 8,         \
-					PropModeReplace, (unsigned char*) buf, strlen(buf)); \
+#define SETFMTPROP(name, format, val)                                        \
+		{                                                                    \
+			int __atom;                                                      \
+			char __buf[1024];                                                \
+			snprintf(__buf, sizeof(__buf), format, val);                     \
+			__atom = XInternAtom(display, name, False);                      \
+			XChangeProperty(display, window, __atom, XA_STRING, 8,           \
+					PropModeReplace, (unsigned char*) __buf, strlen(__buf)); \
 		}
-#define SETPROP(name, type, size, val)                                   \
-		{                                                                \
-			atom = XInternAtom(display, name, False);                    \
-			XChangeProperty(display, window, atom, type, size,           \
-					PropModeReplace, val, 1); \
+#define SETPROP(name, type, size, val)                               \
+		{                                                            \
+			int __atom;                                              \
+			__atom = XInternAtom(display, name, False);              \
+			XChangeProperty(display, window, __atom, type, size,     \
+					PropModeReplace, val, 1);                        \
 		}
 
 /* prototypes */
@@ -92,7 +95,7 @@ monitor_by_pointer(XineramaScreenInfo *info, int mcount,
 void
 set_properties(Display *display, Window window)
 {
-	int wx, wy, mx, my, atom = 0;
+	int wx, wy, mx, my;
 	unsigned int ww, wh, mw, mh;
 	char *env = NULL;
 
@@ -129,11 +132,13 @@ set_properties(Display *display, Window window)
 		screen = 0;
 		set = 0;
 		ENVPARSE(
-			if (!strcmp("SCREEN_NUM", key) && (set || ++set)) {
+			if (!strcmp("SCREEN_NUM", key)) {
+				set = 1;
 				screen = strtoul(value, NULL, 0);
 				if (screen >= mcount)
 					ERRQUIT("winpreload: invalid screen number specified\n");
-			} else if (!strcmp("SCREEN_PTR", key) && (set || ++set)) {
+			} else if (!strcmp("SCREEN_PTR", key)) {
+				set = 1;
 				screen = monitor_by_pointer(info, mcount, display, window);
 				if (screen == -1)
 					goto cleanup_xinerama;
@@ -195,14 +200,18 @@ cleanup_xinerama:
 			wx = mx + strtoul(value, NULL, 0);
 		} else if (!strcmp(key, "MPOS_Y")) {
 			wy = my + strtoul(value, NULL, 0);
+		} else if (!strcmp(key, "WIDTH")) {
+			ww = strtoul(value, NULL, 0);
+		} else if (!strcmp(key, "HEIGHT")) {
+			wh = strtoul(value, NULL, 0);
 		} else if (!strcmp(key, "POS_CENTER")) {
 			wx = mx + (mw - ww) / 2.f;
 			wy = my + (mh - ww) / 2.f;
 		} else if (!strcmp(key, "DIALOG")) {
-			Atom a;
+			Atom atom;
 
-			a = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
-			SETPROP("_NET_WM_WINDOW_TYPE", XA_ATOM, 32, (void*) &a);
+			atom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+			SETPROP("_NET_WM_WINDOW_TYPE", XA_ATOM, 32, (void*) &atom);
 		} else {
 			SETFMTPROP(key, "%s", value);
 		}
