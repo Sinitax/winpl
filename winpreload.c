@@ -206,7 +206,7 @@ cleanup_xinerama:
 			wh = strtoul(value, NULL, 0);
 		} else if (!strcmp(key, "POS_CENTER")) {
 			wx = mx + (mw - ww) / 2.f;
-			wy = my + (mh - ww) / 2.f;
+			wy = my + (mh - wh) / 2.f;
 		} else if (!strcmp(key, "DIALOG")) {
 			Atom atom;
 
