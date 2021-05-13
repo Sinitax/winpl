@@ -16,7 +16,7 @@
 
 extern char **environ;
 
-static const char env_prefix[] = "WINPRELOAD_";
+static const char env_prefix[] = "WINPL_";
 static const int env_prefixlen = sizeof(env_prefix) - 1;
 /* dlopened xlib so we can find the symbols in the real xlib to call them */
 static void *lib_xlib = NULL;
@@ -192,22 +192,30 @@ cleanup_xinerama:
 	}
 
 	ENVPARSE(
-		if (!strcmp(key, "POS_X")) {
+		if (!strcmp(key, "WX")) { /* absolute window x */
 			wx = strtoul(value, NULL, 0);
-		} else if (!strcmp(key, "POS_Y")) {
+		} else if (!strcmp(key, "WY")) { /* absolute window y */
 			wy = strtoul(value, NULL, 0);
-        } else if (!strcmp(key, "MPOS_X")) {
+		} else if (!strcmp(key, "RWX")) { /* window x relative to monitor rsize */
+			wx = mw * strtof(value, NULL);
+		} else if (!strcmp(key, "RWY")) { /* window y relative to monitor size */
+			wy = mh * strtof(value, NULL);
+		} else if (!strcmp(key, "MWX")) { /* window x from monitor top left */
 			wx = mx + strtoul(value, NULL, 0);
-		} else if (!strcmp(key, "MPOS_Y")) {
+		} else if (!strcmp(key, "MWY")) { /* window y from monitor top left */
 			wy = my + strtoul(value, NULL, 0);
-		} else if (!strcmp(key, "WIDTH")) {
+		} else if (!strcmp(key, "WW")) { /* window width */
 			ww = strtoul(value, NULL, 0);
-		} else if (!strcmp(key, "HEIGHT")) {
+		} else if (!strcmp(key, "WH")) { /* window height */
 			wh = strtoul(value, NULL, 0);
-		} else if (!strcmp(key, "POS_CENTER")) {
+		} else if (!strcmp(key, "RWW")) { /* window width relative to monitor size */
+			ww = mw * strtof(value, NULL);
+		} else if (!strcmp(key, "RWH")) { /* window height relative to monitor size */
+			wh = mh * strtof(value, NULL);
+		} else if (!strcmp(key, "CENTER")) { /* window centered in monitor */
 			wx = mx + (mw - ww) / 2.f;
 			wy = my + (mh - wh) / 2.f;
-		} else if (!strcmp(key, "DIALOG")) {
+		} else if (!strcmp(key, "FLOAT")) { /* window 'floating' in tiled WM */
 			Atom atom;
 
 			atom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
