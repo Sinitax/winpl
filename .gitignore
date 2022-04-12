@@ -1,1 +1,3 @@
-winpreload.so
+winpl.so.o
+winpl.so
+winpl
