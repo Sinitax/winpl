@@ -18,18 +18,20 @@ static void write_lib(const char *filename);
 static bool parse_arg(const char *arg);
 
 static const char *conv[][2] = {
-	{ "wx:", "WINPL_WX" },
-	{ "wy:", "WINPL_WY" },
-	{ "rwx:", "WINPL_RWX" },
-	{ "rwy:", "WINPL_RWY" },
-	{ "mwx:", "WINPL_MWX" },
-	{ "mwy:", "WINPL_MWY" },
-	{ "ww:", "WINPL_WW" },
-	{ "wh:", "WINPL_WH" },
-	{ "rww:", "WINPL_RWW" },
-	{ "rwh:", "WINPL_RWH" },
+	{ "ax:", "WINPL_WX" },
+	{ "ay:", "WINPL_WY" },
+	{ "rx:", "WINPL_RWX" },
+	{ "ry:", "WINPL_RWY" },
+	{ "x:", "WINPL_MWX" },
+	{ "y:", "WINPL_MWY" },
+	{ "w:", "WINPL_WW" },
+	{ "h:", "WINPL_WH" },
+	{ "rw:", "WINPL_RWW" },
+	{ "rh:", "WINPL_RWH" },
 	{ "center", "WINPL_CENTER" },
 	{ "float", "WINPL_FLOAT" },
+	{ "screen:", "WINPL_SCREEN_NUM" },
+	{ "pointer", "WINPL_SCREEN_PTR" },
 };
 
 void
