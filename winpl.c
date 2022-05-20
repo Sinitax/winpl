@@ -100,9 +100,6 @@ monitor_from_pointer(XineramaScreenInfo *info, int mcount,
 	return screen;
 }
 
-#define INTERSECT(x,y,w,h,r) (
-
-
 int
 monitor_from_focussed(Display *display, XineramaScreenInfo *info, int mcount)
 {
