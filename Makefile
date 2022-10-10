@@ -1,9 +1,10 @@
+PREFIX ?= /usr/local
+BINDIR ?= /bin
+
 CFLAGS = --std=gnu99 -Wmissing-prototypes -Wunused-variable -g
 LIB_FLAGS = $(CFLAGS) -nostartfiles -fPIC -shared -Wl,-soname,xwrap.so
 LOADER_FLAGS = $(CFLAGS)
 LDLIBS = -ldl -lX11 -lXinerama
-
-.PHONY: all clean
 
 all: winpl
 
@@ -20,4 +21,10 @@ winpl.so.o: winpl.so
 	objcopy --input binary --output elf64-x86-64 \
 		--binary-architecture i386:x86-64 $< $@
 
+install: winpl
+	install -m755 winpl -t "$(DESTDIR)$(PREFIX)$(BINDIR)"
 
+uninstall:
+	rm -f "$(DESTDIR)$(PREFIX)$(BINDIR)/winpl"
+
+.PHONY: all clean install uninstall
