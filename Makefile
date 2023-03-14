@@ -1,7 +1,7 @@
 PREFIX ?= /usr/local
 BINDIR ?= /bin
 
-CFLAGS = --std=gnu99 -Wmissing-prototypes -Wunused-variable -g
+CFLAGS = -Wunused-variable -Wunused-function -g
 LIB_FLAGS = $(CFLAGS) -nostartfiles -fPIC -shared -Wl,-soname,xwrap.so
 LOADER_FLAGS = $(CFLAGS)
 LDLIBS = -ldl -lX11 -lXinerama
