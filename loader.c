@@ -32,8 +32,10 @@ usage(int rc, bool full)
 	fprintf(stderr, "  [-rw|-rh] SCALE  Window size relative to monitor\n");
 	fprintf(stderr, "  -c               Center window on monitor\n");
 	fprintf(stderr, "  -f               Tag window as dialog (floating)\n");
-	fprintf(stderr, "  -sn SCREEN       Select monitor based on number\n");
-	fprintf(stderr, "  -sp              Select monitor based on cursor\n");
+	fprintf(stderr, "  -mn SCREEN       Select monitor based on number\n");
+	fprintf(stderr, "  -mp              Select monitor based on cursor\n");
+	fprintf(stderr, "  -mf              Select monitor based on focus\n");
+	fprintf(stderr, "  -ni              Window does not take input (focus)\n");
 	fprintf(stderr, "\n");
 	exit(rc);
 }
@@ -134,10 +136,14 @@ main(int argc, char *const *argv)
 			setenv("WINPL_CENTER", "1", true);
 		} else if (!strcmp(*arg, "-f")) {
 			setenv("WINPL_FLOAT", "1", true);
-		} else if (!strcmp(*arg, "-sn")) {
-			setenv("WINPL_SCREEN_NUM", *++arg, true);
-		} else if (!strcmp(*arg, "-sp")) {
-			setenv("WINPL_SCREEN_PTR", "1", true);
+		} else if (!strcmp(*arg, "-mn")) {
+			setenv("WINPL_MON_NUM", *++arg, true);
+		} else if (!strcmp(*arg, "-mp")) {
+			setenv("WINPL_MON_PTR", "1", true);
+		} else if (!strcmp(*arg, "-mf")) {
+			setenv("WINPL_MON_FOCUS", "1", true);
+		} else if (!strcmp(*arg, "-ni")) {
+			setenv("WINPL_NO_INPUT", "1", true);
 		} else if (!strcmp(*arg, "--") && *(arg+1)) {
 			cmd_argv = arg + 1;
 			break;

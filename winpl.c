@@ -1,5 +1,6 @@
 /* original: https://www.mail-archive.com/devel@xfree86.org/msg05806.html */
 
+#include <X11/Xutil.h>
 #include <X11/Xlib.h>
 #include <X11/X.h>
 #include <X11/Xatom.h>
@@ -9,18 +10,16 @@
 #include <sys/stat.h>
 #include <sys/utsname.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <stdarg.h>
-#include <string.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdlib.h>
 
 #define MAX(a,b) ((a > b) ? a : b)
 #define MIN(a,b) ((a < b) ? a : b)
-
-#define ERROR(msg) { fprintf(stderr, "winpl: %s\n", msg); exit(1); }
 
 extern char **environ;
 
@@ -29,21 +28,33 @@ static const int prefixlen = sizeof(prefix) - 1;
 
 static void *lib_xlib = NULL;
 
-static char **iter_args(char **env, const char **key, size_t *keylen,
-	const char **val);
+static void
+warn(const char *fmt, ...)
+{
+	va_list ap;
 
-static int intersection_area(XineramaScreenInfo *info, XWindowAttributes *wa);
+	va_start(ap, fmt);
+	fprintf(stderr, "winpl: warn: ");
+	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "\n");
+	va_end(ap);
+}
 
-static int monitor_from_pointer(XineramaScreenInfo *info, int mcount,
-	Display *display, Window window);
-static int monitor_from_focussed(Display *display, XineramaScreenInfo *info,
-	int mcount);
+static void
+err(const char *fmt, ...)
+{
+	va_list ap;
 
-static void set_prop(Display *display, Window window, const char *name,
-	int type, size_t size, void *val);
-static void set_props(Display *display, Window window);
+	va_start(ap, fmt);
+	fprintf(stderr, "winpl: ");
+	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "\n");
+	va_end(ap);
 
-char **
+	exit(1);
+}
+
+static char **
 iter_args(char **env, const char **key, size_t *keylen, const char **val)
 {
 	const char *tok;
@@ -62,7 +73,7 @@ iter_args(char **env, const char **key, size_t *keylen, const char **val)
 	return NULL;
 }
 
-int
+static int
 intersection_area(XineramaScreenInfo *info, XWindowAttributes *wa)
 {
 	int dx, dy;
@@ -76,7 +87,7 @@ intersection_area(XineramaScreenInfo *info, XWindowAttributes *wa)
 	return MAX(0, dx) * MAX(0, dy);
 }
 
-int
+static int
 monitor_from_pointer(XineramaScreenInfo *info, int mcount,
 		Display *display, Window window)
 {
@@ -100,7 +111,7 @@ monitor_from_pointer(XineramaScreenInfo *info, int mcount,
 	return screen;
 }
 
-int
+static int
 monitor_from_focussed(Display *display, XineramaScreenInfo *info, int mcount)
 {
 	Window w, root, *dws, dw, pw;
@@ -137,7 +148,7 @@ monitor_from_focussed(Display *display, XineramaScreenInfo *info, int mcount)
 	return screen;
 }
 
-void
+static void
 set_prop(Display *display, Window window, const char *name,
 	int type, size_t size, void *val)
 {
@@ -148,13 +159,14 @@ set_prop(Display *display, Window window, const char *name,
 			PropModeReplace, val, 1);
 }
 
-void
+static void
 set_props(Display *display, Window window)
 {
 	int wx, wy, mx, my;
 	unsigned int ww, wh, mw, mh;
 	const char *key, *val;
 	unsigned int border, depth;
+	XWMHints hints;
 	size_t keylen;
 	char **env;
 	Window root;
@@ -168,48 +180,61 @@ set_props(Display *display, Window window)
 
 	if (!XGetGeometry(display, window, &root,
 			&wx, &wy, &ww, &wh, &border, &depth))
-		ERROR("Failed to get window geometry");
+		err("Failed to get window geometry");
 
 	if (!XGetGeometry(display, root, &root,
 			&mx, &my, &mw, &mh, &border, &depth))
-		ERROR("Failed to get screen geometry");
+		err("Failed to get screen geometry");
 
 	if (XineramaIsActive(display)) {
 		XineramaScreenInfo *info;
-		int mcount, screen;
+		int mcount, mon;
 
 		if (!(info = XineramaQueryScreens(display, &mcount)))
-			ERROR("Failed to query xinerama");
+			err("Failed to query xinerama");
 
-		screen = -1;
+		mon = -1;
 
 		env = environ;
 		while ((env = iter_args(env, &key, &keylen, &val))) {
-			if (!strncmp("SCREEN_NUM", key, keylen)) {
-				screen = strtoul(val, NULL, 0);
-				if (screen >= mcount || screen < 0)
-					ERROR("Screen out-of-bounds");
-			} else if (!strncmp("SCREEN_PTR", key, keylen)) {
-				screen = monitor_from_pointer(info,
+			if (!strncmp("MON_NUM", key, keylen)) {
+				mon = strtoul(val, NULL, 0);
+				if (mon < 0 || mon >= mcount)
+					err("Monitor number OOB");
+			} else if (!strncmp("MON_PTR", key, keylen)) {
+				mon = monitor_from_pointer(info,
 					mcount, display, window);
+			} else if (!strncmp("MON_FOCUS", key, keylen)) {
+				mon = monitor_from_focussed(display,
+					info, mcount);
+			} else if (keylen >= 4 && !strncmp(key, "MON_", 4)) {
+				err("Unsupported env var: WINPL_%.*s",
+					(int) keylen, key);
 			}
 		}
 
-		if (screen == -1)
-			screen = monitor_from_focussed(display,
-				info, mcount);
+		if (mon == -1)
+			mon = monitor_from_focussed(display, info, mcount);
 
-		if (screen == -1)
-			screen = monitor_from_pointer(info, mcount,
+		if (mon == -1)
+			mon = monitor_from_pointer(info, mcount,
 				display, window);
 
-		if (screen == -1)
-			ERROR("Failed to get screen");
+		if (mon == -1)
+			err("Failed to get monitor");
 
-		mx = info[screen].x_org;
-		my = info[screen].y_org;
-		mw = info[screen].width;
-		mh = info[screen].height;
+		mx = info[mon].x_org;
+		my = info[mon].y_org;
+		mw = info[mon].width;
+		mh = info[mon].height;
+	} else {
+		env = environ;
+		while ((env = iter_args(env, &key, &keylen, &val))) {
+			if (keylen >= 4 && !strncmp(key, "MON_", 4)) {
+				warn("Xinerama is not active");
+				break;
+			}
+		}
 	}
 
 	env = environ;
@@ -254,6 +279,14 @@ set_props(Display *display, Window window)
 				"_NET_WM_WINDOW_TYPE_DIALOG", False);
 			set_prop(display, window, "_NET_WM_WINDOW_TYPE",
 				XA_ATOM, 32, &atom);
+		} else if (!strncmp(key, "NO_INPUT", keylen)) {
+			/* never take input (focus) */
+			hints.flags = InputHint;
+			hints.input = false;
+			XSetWMHints(display, window, &hints);
+		} else if (keylen < 4 || strncmp(key, "MON_", 4)) {
+			err("Unsupported env var: WINPL_%.*s",
+				(int) keylen, key);
 		}
 	}
 
@@ -266,8 +299,7 @@ set_props(Display *display, Window window)
 		XA_CARDINAL, 32, &ppid);
 
 	/* update window pos and geometry */
-	XMoveWindow(display, window, wx, wy);
-	XResizeWindow(display, window, ww, wh);
+	XMoveResizeWindow(display, window, wx, wy, ww, wh);
 }
 
 Window
